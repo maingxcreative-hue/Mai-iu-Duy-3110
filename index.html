@@ -34,23 +34,28 @@ body{
 /* ---------- leaves ---------- */
 .leaf{
   position:absolute; inset:0;
-  transform-style:preserve-3d;
   transform-origin:left center;
+}
+.leaf.turning{
+  transform-style:preserve-3d;
   transition:transform .95s cubic-bezier(.45,.08,.2,1);
 }
 .leaf.flipped{transform:rotateY(-179deg)}
+.leaf.parked{visibility:hidden}
 .face{
   position:absolute; inset:0;
-  -webkit-backface-visibility:hidden; backface-visibility:hidden;
   border-radius:5px 12px 12px 5px;
   overflow:hidden;
   background:var(--page);
   box-shadow:0 2px 5px rgba(60,50,45,.18);
 }
+.leaf.turning .face{-webkit-backface-visibility:hidden; backface-visibility:hidden}
 .face.back{
   transform:rotateY(180deg);
   border-radius:12px 5px 5px 12px;
+  display:none;
 }
+.leaf.turning .face.back{display:block}
 /* glossy album-paper finish */
 .paper{
   position:absolute; inset:0; padding:0;
@@ -108,7 +113,7 @@ body{
 
 /* ---------- page content ---------- */
 .page-scroll{
-  position:absolute; inset:0; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  position:absolute; inset:0; overflow-y:auto; -webkit-overflow-scrolling:touch; touch-action:pan-y;
   padding:clamp(16px,4.5%,26px) clamp(16px,5%,28px) clamp(26px,7%,40px);
   overscroll-behavior:contain; scrollbar-width:none;
 }
@@ -220,11 +225,6 @@ h2.script{
 }
 .tab.active{background:var(--rose); color:#fff}
 
-/* tap zones over the book edges */
-.zone{position:absolute; top:0; bottom:0; width:15%; z-index:500; cursor:pointer}
-.zone.next{right:-2%}
-.zone.prev{left:-2%}
-
 /* lightbox */
 .lightbox{
   position:fixed; inset:0; z-index:2000; display:none;
@@ -237,7 +237,7 @@ h2.script{
 .lightbox .lb-close{color:#cbb3ba; font-size:13px}
 
 @media (prefers-reduced-motion: reduce){
-  .leaf{transition-duration:.05s}
+  .leaf.turning{transition-duration:.05s}
 }
 </style>
 </head>
@@ -245,8 +245,6 @@ h2.script{
 
 <div class="stage">
   <div class="book" id="book"></div>
-  <div class="zone prev" id="zPrev"></div>
-  <div class="zone next" id="zNext"></div>
 </div>
 
 <div class="chrome">
@@ -534,10 +532,23 @@ h2.script{
       l.style.zIndex = l.classList.contains('flipped') ? (i+1) : (2*N - i);
     });
   }
-  function boost(l){
+  function startTurn(l, forward){
+    clearTimeout(l._t);
+    l.classList.add('turning');
+    l.classList.remove('parked');
     l.style.zIndex = 3*N + 5;
-    clearTimeout(l._zt);
-    l._zt = setTimeout(zUpdate, 980);
+    void l.offsetWidth; // force reflow so the transition animates
+    if(forward){ l.classList.add('flipped'); } else { l.classList.remove('flipped'); }
+    function done(e){
+      if(e && e.target !== l) return;
+      l.removeEventListener('transitionend', done);
+      clearTimeout(l._t);
+      if(l.classList.contains('flipped')) l.classList.add('parked');
+      l.classList.remove('turning');
+      zUpdate();
+    }
+    l.addEventListener('transitionend', done);
+    l._t = setTimeout(done, 1150);
   }
   function refresh(){
     bar.style.width = (cur/(N-1))*100 + '%';
@@ -550,15 +561,13 @@ h2.script{
   }
   function next(){
     if(cur>=N-1) return;
-    var l = leaves[cur];
-    l.classList.add('flipped'); boost(l);
+    startTurn(leaves[cur], true);
     cur++; refresh();
   }
   function prev(){
     if(cur<=0) return;
     cur--;
-    var l = leaves[cur];
-    l.classList.remove('flipped'); boost(l);
+    startTurn(leaves[cur], false);
     refresh();
   }
   function goTo(p){
@@ -572,8 +581,6 @@ h2.script{
     })();
   }
 
-  document.getElementById('zNext').addEventListener('click', next);
-  document.getElementById('zPrev').addEventListener('click', prev);
   btnNext.addEventListener('click', next);
   btnPrev.addEventListener('click', prev);
   document.addEventListener('keydown', function(e){
@@ -609,7 +616,8 @@ h2.script{
       lb.classList.add('open');
       return;
     }
-    next(); // tap anywhere else on the page = turn the page
+    var rect = book.getBoundingClientRect();
+    if(e.clientX - rect.left < rect.width*0.22){ prev(); } else { next(); }
   });
   lb.addEventListener('click', function(){ lb.classList.remove('open'); lbImg.src=''; });
 
